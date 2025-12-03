@@ -5,7 +5,7 @@ const cors = require('cors');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const { dbMovies, dbDirectors } = require('./database.js');
-const authenticateToken = require('./middleware/authMiddleware');
+const {authenticateToken, authorizeRole} = require('./middleware/authMiddleware.js');
 const app = express();
 const port = process.env.PORT || 3100;
 const JWT_SECRET = process.env.JWT_SECRET;
@@ -168,30 +168,114 @@ app.delete('/directors/:id', (req, res) => {
     
 
 
-//===AUTH ROUTES===
+//===AUTH ROUTES=== // modifikasi authentication
+// app.post('/auth/register', (req, res) => {
+//     const { username, password } = req.body;
+//     if (!username || !password || password.length < 6) {
+//         return res.status(400).json({ error: 'Username dan password (min 6 char) harus diisi' });
+//     }
+
+//     bcrypt.hash(password, 10, (err, hashedPassword) => {
+//         if (err) {
+//             console.error("Error hashing:", err);
+//             return res.status(500).json({ error: 'Gagal memproses pendaftaran' });
+//         }
+
+//         const sql = 'INSERT INTO users (username, password) VALUES (?, ?)';
+//         const params = [username.toLowerCase(), hashedPassword];
+        
+//         dbMovies.run(sql, params, function(err) {
+//             if (err) {
+//                 if (err.message.includes('UNIQUE constraint failed')) {
+//                     return res.status(400).json({ error: 'Username sudah digunakan' });
+//                 }
+//                 return res.status(500).json({ error: 'Gagal mendaftarkan pengguna' });
+//             }
+//             res.status(201).json({ message: 'Pengguna berhasil didaftarkan', userId: this.lastID });
+//         });
+//     });
+// });
+
+// modifikasi authentication
 app.post('/auth/register', (req, res) => {
     const { username, password } = req.body;
-    if (!username || !password || password.length < 6) {
-        return res.status(400).json({ error: 'Username dan password (min 6 char) harus diisi' });
+    
+    // Validasi username dan password
+    if (!username || !password) {
+        return res.status(400).json({ error: 'Username dan password harus diisi' });
+    }
+    
+    if (password.length < 6) {
+        return res.status(400).json({ error: 'Password minimal 6 karakter' });
     }
 
     bcrypt.hash(password, 10, (err, hashedPassword) => {
+        // Penanganan error hash
         if (err) {
-            console.error("Error hashing:", err);
-            return res.status(500).json({ error: 'Gagal memproses pendaftaran' });
+            console.error("Error hashing password:", err);
+            return res.status(500).json({ error: 'Gagal memproses password' });
         }
 
-        const sql = 'INSERT INTO users (username, password) VALUES (?, ?)';
-        const params = [username.toLowerCase(), hashedPassword];
-        
-        dbMovies.run(sql, params, function(err) {
+        const sql = 'INSERT INTO users (username, password, role) VALUES (?, ?, ?)';
+        const params = [username.toLowerCase(), hashedPassword, 'user']; // Tetapkan 'user'
+
+        userDB.run(sql, params, function(err) {
+
+            // Penanganan error constraint unik
             if (err) {
                 if (err.message.includes('UNIQUE constraint failed')) {
-                    return res.status(400).json({ error: 'Username sudah digunakan' });
+                    return res.status(409).json({ error: 'Username sudah digunakan' });
                 }
+                console.error("Error database:", err);
                 return res.status(500).json({ error: 'Gagal mendaftarkan pengguna' });
             }
-            res.status(201).json({ message: 'Pengguna berhasil didaftarkan', userId: this.lastID });
+            
+            res.status(201).json({ 
+                message: 'Registrasi berhasil', 
+                userId: this.lastID 
+            });
+        });
+    });
+});
+
+// BUAT ENDPOINT INI HANYA UNTUK PENGUJIAN, HAPUS DI PRODUKSI
+app.post('/auth/register-admin', (req, res) => {
+    const { username, password } = req.body;
+    // ... (lakukan validasi yang sama) ...
+    
+    // Validasi username dan password
+    if (!username || !password) {
+        return res.status(400).json({ error: 'Username dan password harus diisi' });
+    }
+    
+    if (password.length < 6) {
+        return res.status(400).json({ error: 'Password minimal 6 karakter' });
+    }
+
+    bcrypt.hash(password, 10, (err, hashedPassword) => {
+        if (err) { 
+            console.error("Error hashing password:", err);
+            return res.status(500).json({ error: 'Gagal memproses password' });
+        }
+
+        const sql = 'INSERT INTO users (username, password, role) VALUES (?, ?, ?)';
+        const params = [username.toLowerCase(), hashedPassword, 'admin']; // Tetapkan 'admin'
+
+        db.run(sql, params, function(err) {
+            if (err) {
+                if (err.message.includes('UNIQUE')) {
+                    return res.status(409).json({ 
+                        error: 'Username admin sudah ada' 
+                    });
+                }
+                return res.status(500).json({ 
+                    error: err.message 
+                });
+            }
+            res.status(201).json({ 
+                message: 'Admin berhasil dibuat', 
+                userId: this.lastID 
+            });
         });
     });
 });
@@ -215,7 +299,7 @@ app.post('/auth/login', (req, res) => {
             }
 
             const payload = {
-                user: {id: user.id, username: user.username}};
+                user: {id: user.id, username: user.username, role: user.role}}; // ambil peran dari basis data(modifikasi rabc)
 
             jwt.sign(payload, JWT_SECRET, { expiresIn: '1h' }, (err, token) => {
                 if (err) {
